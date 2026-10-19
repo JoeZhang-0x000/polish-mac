@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 struct SettingsView: View {
     var openAccessibility: () -> Void
@@ -28,6 +29,9 @@ private struct GeneralTab: View {
 
     @State private var trusted = FocusInspector.isTrusted
     @State private var customLanguage = false
+    // Read from the system rather than stored in config, so it stays in sync with System Settings.
+    @State private var loginStatus = SMAppService.mainApp.status
+    @State private var loginError: String?
     private let timer = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
     private static let customTag = "__custom__"
 
@@ -68,6 +72,23 @@ private struct GeneralTab: View {
                     if !trusted { Button("去授权") { openAccessibility() } }
                 }
             } header: { Text("权限") }
+
+            Section {
+                Toggle("登录时自动启动 Polish", isOn: Binding(
+                    get: { loginStatus == .enabled || loginStatus == .requiresApproval },
+                    set: { setLaunchAtLogin($0) }))
+                if loginStatus == .requiresApproval {
+                    HStack {
+                        Text("需要在「系统设置 › 通用 › 登录项」中允许 Polish")
+                            .font(.caption).foregroundStyle(.orange)
+                        Spacer()
+                        Button("打开登录项设置") { SMAppService.openSystemSettingsLoginItems() }
+                    }
+                }
+                if let e = loginError {
+                    Text(e).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                }
+            } header: { Text("启动") }
 
             Section {
                 Toggle("启用双击空格润色", isOn: $store.config.enabled)
@@ -140,7 +161,20 @@ private struct GeneralTab: View {
             }
         }
         .formStyle(.grouped)
-        .onReceive(timer) { _ in trusted = FocusInspector.isTrusted }
+        .onReceive(timer) { _ in
+            trusted = FocusInspector.isTrusted
+            loginStatus = SMAppService.mainApp.status
+        }
+    }
+
+    private func setLaunchAtLogin(_ on: Bool) {
+        loginError = nil
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            loginError = "设置失败：\(error.localizedDescription)（请确认 Polish 位于「应用程序」文件夹）"
+        }
+        loginStatus = SMAppService.mainApp.status
     }
 
     private func appName(_ bid: String) -> String {
